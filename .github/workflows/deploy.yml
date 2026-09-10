@@ -141,20 +141,32 @@ jobs:
       - name: Preview pending migrations
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-        run: supabase db push --db-url "$SUPABASE_DB_URL" --dry-run
+        run: supabase db push --db-url "$SUPABASE_DB_URL" --include-seed --dry-run
 
       # Idempotent: the CLI reads supabase_migrations.schema_migrations and applies
       # only the versions that aren't recorded yet, so re-running a deploy is safe.
       #
-      # --include-seed is deliberately absent, and must stay absent. supabase/seed.sql
-      # creates a hardcoded admin (admin@chatbot.local / admin123456) for local dev;
-      # applying it to production would install a known-password admin account on a
-      # live database. Same reason `supabase db reset` must never appear in this
-      # workflow — it drops the database before re-seeding.
+      # --include-seed applies supabase/seed.sql (config.toml [db.seed] points at
+      # it) on every run. This is a deliberate choice and NOT the usual one, so
+      # be clear about what it installs on a live database:
+      #
+      #   * admin@chatbot.local as an enterprise admin, using the bcrypt hash of
+      #     the password "admin123456" that is committed in seed.sql. Anyone who
+      #     can read this repository can sign in as a platform admin. Change that
+      #     password immediately after the first deploy.
+      #   * placeholder bank details in platform_settings (BDO Unibank, account
+      #     001234567890). The billing page shows these to paying customers as
+      #     transfer instructions until they are replaced at /admin/settings.
+      #
+      # Both inserts are ON CONFLICT DO NOTHING, so they seed once and never
+      # clobber values changed later through the admin UI.
+      #
+      # `supabase db reset` must still never appear in this workflow — it drops
+      # the database before re-seeding.
       - name: Apply migrations
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-        run: supabase db push --db-url "$SUPABASE_DB_URL" --yes
+        run: supabase db push --db-url "$SUPABASE_DB_URL" --include-seed --yes
 
   # No app env vars here on purpose: `vercel pull` downloads the project's own
   # production environment variables, and the running app reads them from Vercel
