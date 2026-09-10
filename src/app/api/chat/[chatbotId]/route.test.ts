@@ -215,10 +215,8 @@ describe('POST /api/chat/[chatbotId]', () => {
   })
 
   it('returns 500 when conversation creation fails', async () => {
-    let fromCallCount = 0
     mockFrom.mockImplementation((table: string) => {
       if (table === 'chatbots') {
-        fromCallCount++
         return {
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({

@@ -1,6 +1,6 @@
 'use client'
 
-import { useAdminUser, useUpdateAdminUser, type AdminUserDetail as AdminUserDetailType } from '@/hooks/useAdminUsers'
+import { useAdminUser, useUpdateAdminUser } from '@/hooks/useAdminUsers'
 import { PLAN_LIMITS, type PlanName } from '@/lib/billing'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'

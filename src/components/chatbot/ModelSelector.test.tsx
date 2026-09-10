@@ -3,7 +3,6 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ModelSelector } from './ModelSelector'
-import { toast } from 'sonner'
 import type { Chatbot, LLMProvider } from '@/types'
 
 const mockMutate = vi.fn()
@@ -137,7 +136,6 @@ describe('ModelSelector', () => {
   })
 
   it('shows error toast when no provider/model selected', async () => {
-    const user = userEvent.setup()
     const chatbot = createChatbot({ llm_provider: '', llm_model: '' })
     renderWithProviders(<ModelSelector chatbot={chatbot} />)
 

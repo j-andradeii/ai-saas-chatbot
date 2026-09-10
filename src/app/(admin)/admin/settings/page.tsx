@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -15,18 +15,27 @@ interface PlanSettings {
   chatbot_limit: number
 }
 
-/** Seed the form from the shipped defaults until the saved settings load. */
-function toPlanSettings(plan: PlanName): PlanSettings {
+type Settings = Record<string, unknown>
+
+/** Fall back to the shipped defaults for anything the API has not stored yet. */
+function planSetting(value: unknown, plan: PlanName): PlanSettings {
+  if (value && typeof value === 'object') return value as PlanSettings
   return {
     message_limit: PLAN_LIMITS[plan].messages,
     chatbot_limit: PLAN_LIMITS[plan].chatbots,
   }
 }
 
-export default function AdminSettingsPage() {
-  const queryClient = useQueryClient()
+function numberSetting(value: unknown, fallback: number): number {
+  return typeof value === 'number' ? value : fallback
+}
 
-  const { data: settings, isLoading } = useQuery<Record<string, unknown>>({
+function stringSetting(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+export default function AdminSettingsPage() {
+  const { data: settings, isLoading } = useQuery<Settings>({
     queryKey: ['admin', 'settings'],
     queryFn: async () => {
       const res = await fetch('/api/admin/settings')
@@ -35,30 +44,34 @@ export default function AdminSettingsPage() {
     },
   })
 
-  const [rateLimit, setRateLimit] = useState(20)
-  const [maxFileSize, setMaxFileSize] = useState(10)
-  const [planFree, setPlanFree] = useState<PlanSettings>(toPlanSettings('free'))
-  const [planPro, setPlanPro] = useState<PlanSettings>(toPlanSettings('pro'))
-  const [planEnterprise, setPlanEnterprise] = useState<PlanSettings>(toPlanSettings('enterprise'))
-  const [bankName, setBankName] = useState('')
-  const [bankAccountName, setBankAccountName] = useState('')
-  const [bankBranch, setBankBranch] = useState('')
-  const [bankAccountNumber, setBankAccountNumber] = useState('')
-  const [bankInstructions, setBankInstructions] = useState('')
+  if (isLoading) {
+    return <p className="text-muted-foreground">Loading settings...</p>
+  }
 
-  useEffect(() => {
-    if (!settings) return
-    if (typeof settings.rate_limit_per_minute === 'number') setRateLimit(settings.rate_limit_per_minute)
-    if (typeof settings.max_file_upload_mb === 'number') setMaxFileSize(settings.max_file_upload_mb)
-    if (settings.plan_free && typeof settings.plan_free === 'object') setPlanFree(settings.plan_free as PlanSettings)
-    if (settings.plan_pro && typeof settings.plan_pro === 'object') setPlanPro(settings.plan_pro as PlanSettings)
-    if (settings.plan_enterprise && typeof settings.plan_enterprise === 'object') setPlanEnterprise(settings.plan_enterprise as PlanSettings)
-    if (typeof settings.bank_name === 'string') setBankName(settings.bank_name)
-    if (typeof settings.bank_account_name === 'string') setBankAccountName(settings.bank_account_name)
-    if (typeof settings.bank_branch === 'string') setBankBranch(settings.bank_branch)
-    if (typeof settings.bank_account_number === 'string') setBankAccountNumber(settings.bank_account_number)
-    if (typeof settings.bank_additional_instructions === 'string') setBankInstructions(settings.bank_additional_instructions)
-  }, [settings])
+  // The form mounts only once the settings have landed, so every field seeds
+  // itself from the server data instead of being synced in an effect.
+  return <SettingsForm settings={settings ?? {}} />
+}
+
+function SettingsForm({ settings }: { settings: Settings }) {
+  const queryClient = useQueryClient()
+
+  const [rateLimit, setRateLimit] = useState(() => numberSetting(settings.rate_limit_per_minute, 20))
+  const [maxFileSize, setMaxFileSize] = useState(() => numberSetting(settings.max_file_upload_mb, 10))
+  const [planFree, setPlanFree] = useState(() => planSetting(settings.plan_free, 'free'))
+  const [planPro, setPlanPro] = useState(() => planSetting(settings.plan_pro, 'pro'))
+  const [planEnterprise, setPlanEnterprise] = useState(() =>
+    planSetting(settings.plan_enterprise, 'enterprise')
+  )
+  const [bankName, setBankName] = useState(() => stringSetting(settings.bank_name))
+  const [bankAccountName, setBankAccountName] = useState(() => stringSetting(settings.bank_account_name))
+  const [bankBranch, setBankBranch] = useState(() => stringSetting(settings.bank_branch))
+  const [bankAccountNumber, setBankAccountNumber] = useState(() =>
+    stringSetting(settings.bank_account_number)
+  )
+  const [bankInstructions, setBankInstructions] = useState(() =>
+    stringSetting(settings.bank_additional_instructions)
+  )
 
   const saveMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
@@ -90,10 +103,6 @@ export default function AdminSettingsPage() {
       bank_account_number: bankAccountNumber,
       bank_additional_instructions: bankInstructions,
     })
-  }
-
-  if (isLoading) {
-    return <p className="text-muted-foreground">Loading settings...</p>
   }
 
   return (

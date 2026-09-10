@@ -42,7 +42,7 @@ export function UserTable() {
   const filtered = useMemo(() => {
     if (!users) return []
     const q = search.toLowerCase()
-    let result = users.filter(
+    const result = users.filter(
       (u) =>
         (u.full_name?.toLowerCase().includes(q) ?? false) ||
         (u.email?.toLowerCase().includes(q) ?? false) ||

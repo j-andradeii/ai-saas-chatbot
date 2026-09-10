@@ -1,6 +1,6 @@
 'use client'
 
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useUpdateChatbot } from '@/hooks/useChatbots'
@@ -29,7 +29,7 @@ export function PersonalityForm({ chatbot }: PersonalityFormProps) {
   const {
     register,
     handleSubmit,
-    watch,
+    control,
     formState: { errors },
   } = useForm<PersonalityFormValues>({
     resolver: zodResolver(personalitySchema),
@@ -40,7 +40,7 @@ export function PersonalityForm({ chatbot }: PersonalityFormProps) {
     },
   })
 
-  const promptLength = watch('personality_prompt')?.length || 0
+  const promptLength = useWatch({ control, name: 'personality_prompt' })?.length || 0
 
   const onSubmit = (data: PersonalityFormValues) => {
     updateChatbot.mutate(data, {
