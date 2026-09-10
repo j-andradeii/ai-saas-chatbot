@@ -19,6 +19,20 @@ vi.mock('ai', () => ({
 
 import { fieldToZod, getChatbotTools, prepareCardData } from './tools'
 import type { EnquiryFormField } from '@/types'
+import type { Tool } from 'ai'
+
+/**
+ * `execute` is optional on the AI SDK's `Tool` type, but every tool we build
+ * defines one — narrow it here rather than at each call site.
+ */
+function runTool(tool: Tool, input: Record<string, unknown>, toolCallId = 'tc-1') {
+  if (!tool.execute) throw new Error(`tool has no execute function`)
+  return tool.execute(input, {
+    toolCallId,
+    messages: [],
+    abortSignal: new AbortController().signal,
+  })
+}
 
 describe('fieldToZod', () => {
   it('maps string type to z.string()', () => {
@@ -154,7 +168,7 @@ describe('getChatbotTools', () => {
       visitorIp: '1.2.3.4',
     })
 
-    const result = await tools.lead_form.execute({ name: 'John' }, { toolCallId: 'tc-1', messages: [], abortSignal: new AbortController().signal })
+    const result = await runTool(tools.lead_form, { name: 'John' })
     // AI SDK tool generates the form with field definitions and prefilled values
     expect(result._form).toBe(true)
     expect(result.id).toBe('form-1')
@@ -195,10 +209,7 @@ describe('getChatbotTools', () => {
     }])
 
     const { tools } = await getChatbotTools('chatbot-1')
-    const result = await tools.greet.execute(
-      { name: 'Alice' },
-      { toolCallId: 'tc-1', messages: [], abortSignal: new AbortController().signal }
-    )
+    const result = await runTool(tools.greet, { name: 'Alice' })
     expect(result).toEqual({ success: true, data: { name: 'Alice' } })
   })
 
@@ -214,10 +225,7 @@ describe('getChatbotTools', () => {
     }])
 
     const { tools } = await getChatbotTools('chatbot-1')
-    const result = await tools.notify.execute(
-      { message: 'hello' },
-      { toolCallId: 'tc-2', messages: [], abortSignal: new AbortController().signal }
-    )
+    const result = await runTool(tools.notify, { message: 'hello' }, 'tc-2')
     expect(result).toEqual({ success: true, status: 200 })
     expect(mockFetch).toHaveBeenCalledWith(
       'https://hooks.example.com/notify',
@@ -237,10 +245,7 @@ describe('getChatbotTools', () => {
     }])
 
     const { tools } = await getChatbotTools('chatbot-1')
-    const result = await tools.fail_tool.execute(
-      { data: 'test' },
-      { toolCallId: 'tc-3', messages: [], abortSignal: new AbortController().signal }
-    )
+    const result = await runTool(tools.fail_tool, { data: 'test' }, 'tc-3')
     expect(result).toEqual({ success: false, error: 'Webhook request failed' })
   })
 
@@ -279,10 +284,7 @@ describe('getChatbotTools', () => {
     )
 
     const { tools } = await getChatbotTools('chatbot-1')
-    const result = await tools.default_msg.execute(
-      { q: 'test' },
-      { toolCallId: 'tc-4', messages: [], abortSignal: new AbortController().signal }
-    )
+    const result = await runTool(tools.default_msg, { q: 'test' }, 'tc-4')
     expect(result._form).toBe(true)
     expect(result.success_message).toBe('Thank you! Your enquiry has been submitted.')
   })

@@ -3,11 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // Mock OpenAI
 const mockCreate = vi.fn()
 vi.mock('@/lib/openai', () => ({
-  openai: {
-    embeddings: {
-      create: (...args: unknown[]) => mockCreate(...args),
-    },
-  },
+  getOpenAIClient: () =>
+    Promise.resolve({
+      embeddings: {
+        create: (...args: unknown[]) => mockCreate(...args),
+      },
+    }),
 }))
 
 // Mock Supabase admin
@@ -92,7 +93,7 @@ describe('searchSimilarChunks', () => {
       query_embedding: [0.1, 0.2, 0.3],
       chatbot_id_param: 'chatbot-123',
       match_count: 5,
-      match_threshold: 0.7,
+      match_threshold: 0.3,
     })
   })
 

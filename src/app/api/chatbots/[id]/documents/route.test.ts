@@ -22,8 +22,8 @@ vi.mock('next/server', async () => {
 })
 
 // Mock RAG functions
-const mockChunkText = vi.fn(() => ['chunk1', 'chunk2'])
-const mockEmbedText = vi.fn(() => Promise.resolve([0.1, 0.2]))
+const mockChunkText = vi.fn((..._args: unknown[]) => ['chunk1', 'chunk2'])
+const mockEmbedText = vi.fn((..._args: unknown[]) => Promise.resolve([0.1, 0.2]))
 vi.mock('@/lib/rag', () => ({
   chunkText: (...args: unknown[]) => mockChunkText(...args),
   embedText: (...args: unknown[]) => mockEmbedText(...args),
