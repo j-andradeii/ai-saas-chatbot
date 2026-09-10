@@ -7,5 +7,6 @@
   ],
   "github": {
     "enabled": false
-  }
+  },
+  "regions": ["sin1"]
 }
