@@ -128,6 +128,19 @@ jobs:
           fi
           echo "Supabase secrets are present and the project ref is well-formed."
 
+      # Diagnostic: prints which projects the CI token can actually see, so an
+      # "Authorization failed for the access token and project ref pair" error
+      # below can be read as either "wrong token" (target ref absent) or
+      # "insufficient role" (target ref present). Only refs, names and orgs are
+      # printed -- no secrets. Remove once the migrate job is green.
+      - name: Show projects visible to this token
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          # Does not fail the job: the link step below is the real gate, and
+          # seeing both outputs together is what makes the cause obvious.
+          supabase projects list || echo "::warning::projects list failed - the token is likely invalid or revoked"
+
       # Also the credential check: a wrong access token or a database password
       # rotated in the dashboard without updating the secret fails here, with the
       # CLI's own error, instead of halfway through the push.
