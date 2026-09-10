@@ -190,7 +190,12 @@ export async function POST(
       systemPrompt += `\n\nYou can help with: ${skillList}.`
     }
     if (lastUserMessage && lastUserMessage.role === 'user') {
-      const ragChunks = await searchSimilarChunks(lastUserMessage.content, chatbotId, 5)
+      const ragChunks = await searchSimilarChunks(
+        lastUserMessage.content,
+        chatbotId,
+        5,
+        chatbot.llm_provider
+      )
       if (ragChunks.length > 0) {
         const context = ragChunks.map(c => c.content).join('\n\n---\n\n')
         systemPrompt += `\n\n## Knowledge Base\nUse the following reference material to answer the user's question. Base your response on this information when relevant. If the answer is not in the reference material, you may use your general knowledge but let the user know.\n\n${context}`
@@ -289,12 +294,29 @@ export async function POST(
     const generatedForms: Record<string, unknown>[] = []
     const seenFormIds = new Set<string>()
 
+    let sentText = false
+    let streamError: unknown = null
+
     const stream = new ReadableStream({
       async start(controller) {
         try {
           for await (const part of result.fullStream) {
             if (part.type === 'text-delta') {
+              sentText = true
               controller.enqueue(encoder.encode(part.text))
+            } else if (part.type === 'error') {
+              // streamText never throws -- provider failures (a retired model
+              // id, a rejected API key, a safety block) arrive as a stream part.
+              // Ignoring them closed the stream with zero bytes, so the request
+              // returned 200 with an empty body and the widget rendered its
+              // "could not generate a response" fallback, with nothing logged.
+              streamError = part.error
+              console.error('LLM stream error', {
+                chatbotId,
+                provider: chatbot.llm_provider,
+                model: chatbot.llm_model,
+                error: part.error instanceof Error ? part.error.message : part.error,
+              })
             } else if (part.type === 'tool-result') {
               // AI SDK tool generated the form — capture the output (dedupe by form id)
               if (enquiryFormNames.has(part.toolName)) {
@@ -318,6 +340,14 @@ export async function POST(
           for (const cardDef of apiCardData) {
             const marker = `\n__APIDATA__${JSON.stringify(cardDef)}__ENDAPIDATA__`
             controller.enqueue(encoder.encode(marker))
+          }
+
+          if (streamError && !sentText) {
+            controller.enqueue(
+              encoder.encode(
+                "Sorry, I'm having trouble reaching the AI model right now. Please try again in a moment."
+              )
+            )
           }
 
           controller.close()

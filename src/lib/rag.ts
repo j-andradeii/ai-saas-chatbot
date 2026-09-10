@@ -1,4 +1,4 @@
-import { getOpenAIClient } from '@/lib/openai'
+import { embedText } from '@/lib/embeddings'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 
 /**
@@ -52,33 +52,27 @@ export function chunkText(
 }
 
 /**
- * Generate embedding vector for a text string using OpenAI.
- */
-export async function embedText(text: string): Promise<number[]> {
-  const openai = await getOpenAIClient()
-  const response = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
-    input: text,
-  })
-  return response.data[0].embedding
-}
-
-/**
  * Search for document chunks similar to the query text.
  */
 export async function searchSimilarChunks(
   query: string,
   chatbotId: string,
-  matchCount = 5
+  matchCount = 5,
+  preferredProvider = 'openai'
 ): Promise<{ content: string; similarity: number }[]> {
   try {
-    const queryEmbedding = await embedText(query)
+    const { embedding, model } = await embedText(query, preferredProvider, 'query')
 
+    // Vectors from different embedding models are not comparable, so the search
+    // is restricted to chunks that were embedded with this same model. Chunks
+    // stored under a previous provider stay put and are simply not matched
+    // until the document is re-uploaded.
     const { data, error } = await supabaseAdmin.rpc('match_chunks', {
-      query_embedding: queryEmbedding,
+      query_embedding: embedding,
       chatbot_id_param: chatbotId,
       match_count: matchCount,
       match_threshold: 0.3,
+      embedding_model_param: model,
     })
 
     if (error) {

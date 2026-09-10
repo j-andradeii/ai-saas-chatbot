@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { chunkText, embedText } from '@/lib/rag'
+import { chunkText } from '@/lib/rag'
+import { embedText } from '@/lib/embeddings'
 
 const ALLOWED_MIME_TYPES = [
   'application/pdf',
@@ -47,7 +48,7 @@ async function processDocument(documentId: string) {
     // Fetch document record
     const { data: doc, error: docError } = await supabaseAdmin
       .from('knowledge_documents')
-      .select('*')
+      .select('*, chatbots(llm_provider)')
       .eq('id', documentId)
       .single()
 
@@ -72,14 +73,19 @@ async function processDocument(documentId: string) {
     // Chunk the text
     const chunks = chunkText(text, 500, 50)
 
-    // Embed and insert each chunk
+    // Embed with the chatbot's own provider rather than always OpenAI. The
+    // model id is stored so a later provider switch cannot silently mix
+    // incomparable vectors into the same search.
+    const provider = doc.chatbots?.llm_provider ?? 'openai'
+
     for (let i = 0; i < chunks.length; i++) {
-      const embedding = await embedText(chunks[i])
+      const { embedding, model } = await embedText(chunks[i], provider, 'document')
       await supabaseAdmin.from('document_chunks').insert({
         document_id: documentId,
         chatbot_id: doc.chatbot_id,
         content: chunks[i],
         embedding,
+        embedding_model: model,
         chunk_index: i,
       })
     }

@@ -1,14 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Mock OpenAI
-const mockCreate = vi.fn()
-vi.mock('@/lib/openai', () => ({
-  getOpenAIClient: () =>
-    Promise.resolve({
-      embeddings: {
-        create: (...args: unknown[]) => mockCreate(...args),
-      },
-    }),
+// embedText resolves the provider itself; rag.ts just consumes the result.
+const mockEmbedText = vi.fn()
+vi.mock('@/lib/embeddings', () => ({
+  embedText: (...args: unknown[]) => mockEmbedText(...args),
 }))
 
 // Mock Supabase admin
@@ -19,7 +14,7 @@ vi.mock('@/lib/supabase/admin', () => ({
   },
 }))
 
-import { chunkText, embedText, searchSimilarChunks } from './rag'
+import { chunkText, searchSimilarChunks } from './rag'
 
 describe('chunkText', () => {
   it('returns single chunk for short text', () => {
@@ -56,31 +51,12 @@ describe('chunkText', () => {
   })
 })
 
-describe('embedText', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('calls OpenAI embeddings API and returns vector', async () => {
-    const fakeEmbedding = [0.1, 0.2, 0.3]
-    mockCreate.mockResolvedValue({
-      data: [{ embedding: fakeEmbedding }],
-    })
-
-    const result = await embedText('test text')
-    expect(result).toEqual(fakeEmbedding)
-    expect(mockCreate).toHaveBeenCalledWith({
-      model: 'text-embedding-3-small',
-      input: 'test text',
-    })
-  })
-})
-
 describe('searchSimilarChunks', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockCreate.mockResolvedValue({
-      data: [{ embedding: [0.1, 0.2, 0.3] }],
+    mockEmbedText.mockResolvedValue({
+      embedding: [0.1, 0.2, 0.3],
+      model: 'text-embedding-3-small',
     })
   })
 
@@ -94,7 +70,31 @@ describe('searchSimilarChunks', () => {
       chatbot_id_param: 'chatbot-123',
       match_count: 5,
       match_threshold: 0.3,
+      embedding_model_param: 'text-embedding-3-small',
     })
+  })
+
+  it('embeds the query with the chatbot own provider', async () => {
+    mockRpc.mockResolvedValue({ data: [], error: null })
+
+    await searchSimilarChunks('test query', 'chatbot-123', 5, 'google')
+
+    expect(mockEmbedText).toHaveBeenCalledWith('test query', 'google', 'query')
+  })
+
+  it('scopes the search to chunks embedded by the same model', async () => {
+    mockEmbedText.mockResolvedValue({
+      embedding: [0.4, 0.5, 0.6],
+      model: 'gemini-embedding-001',
+    })
+    mockRpc.mockResolvedValue({ data: [], error: null })
+
+    await searchSimilarChunks('test query', 'chatbot-123', 5, 'google')
+
+    expect(mockRpc).toHaveBeenCalledWith(
+      'match_chunks',
+      expect.objectContaining({ embedding_model_param: 'gemini-embedding-001' })
+    )
   })
 
   it('returns results array on success', async () => {

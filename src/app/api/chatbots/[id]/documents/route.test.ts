@@ -23,9 +23,15 @@ vi.mock('next/server', async () => {
 
 // Mock RAG functions
 const mockChunkText = vi.fn((..._args: unknown[]) => ['chunk1', 'chunk2'])
-const mockEmbedText = vi.fn((..._args: unknown[]) => Promise.resolve([0.1, 0.2]))
+// embedText moved to @/lib/embeddings, where it resolves the provider itself
+// and now returns the model id alongside the vector.
+const mockEmbedText = vi.fn((..._args: unknown[]) =>
+  Promise.resolve({ embedding: [0.1, 0.2], model: 'text-embedding-3-small' })
+)
 vi.mock('@/lib/rag', () => ({
   chunkText: (...args: unknown[]) => mockChunkText(...args),
+}))
+vi.mock('@/lib/embeddings', () => ({
   embedText: (...args: unknown[]) => mockEmbedText(...args),
 }))
 

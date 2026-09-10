@@ -361,7 +361,7 @@ describe('POST /api/chat/[chatbotId]', () => {
 
   it('injects RAG context into system prompt', async () => {
     mockFullChatbotProfileChain(
-      { id: 'chatbot-1', user_id: 'user-1', domain: '', personality_prompt: 'Base.', skills: [], api_key: '' },
+      { id: 'chatbot-1', user_id: 'user-1', domain: '', personality_prompt: 'Base.', skills: [], api_key: '', llm_provider: 'google' },
       { message_count: 0, message_limit: 100, is_active: true }
     )
 
@@ -380,7 +380,7 @@ describe('POST /api/chat/[chatbotId]', () => {
     const callArgs = mockStreamText.mock.calls[0][0]
     expect(callArgs.system).toContain('RAG chunk 1')
     expect(callArgs.system).toContain('RAG chunk 2')
-    expect(mockSearchSimilarChunks).toHaveBeenCalledWith('what is this?', 'chatbot-1', 5)
+    expect(mockSearchSimilarChunks).toHaveBeenCalledWith('what is this?', 'chatbot-1', 5, 'google')
   })
 
   it('calls onFinish to save assistant message and increment count', async () => {
