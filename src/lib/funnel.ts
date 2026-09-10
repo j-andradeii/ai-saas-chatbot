@@ -120,6 +120,52 @@ export const PRIORITIES: PriorityConfig[] = [
   },
 ]
 
+export interface LeadScoreBand {
+  /** Inclusive lower bound; bands are checked from the top down. */
+  min: number
+  label: string
+  badgeClass: string
+  /** Fill colour for the interest bar. */
+  barClass: string
+}
+
+/**
+ * Buckets for the 0-100 conversion score produced by lib/lead-score.ts.
+ * Ordered high to low so getLeadScoreBand can return the first match.
+ */
+export const LEAD_SCORE_BANDS: LeadScoreBand[] = [
+  {
+    min: 75,
+    label: 'Ready to book',
+    badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+    barClass: 'bg-emerald-500',
+  },
+  {
+    min: 50,
+    label: 'Hot',
+    badgeClass: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+    barClass: 'bg-orange-500',
+  },
+  {
+    min: 25,
+    label: 'Warm',
+    badgeClass: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+    barClass: 'bg-amber-500',
+  },
+  {
+    min: 0,
+    label: 'Cold',
+    badgeClass: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
+    barClass: 'bg-slate-400',
+  },
+]
+
+export function getLeadScoreBand(score: number): LeadScoreBand {
+  const clamped = Math.max(0, Math.min(100, score))
+  // The 0 band is a guaranteed match, so the fallback is unreachable in practice.
+  return LEAD_SCORE_BANDS.find((band) => clamped >= band.min) ?? LEAD_SCORE_BANDS[LEAD_SCORE_BANDS.length - 1]
+}
+
 export const ACTIVITY_LABELS: Record<EnquiryActivityType, string> = {
   note: 'Note',
   stage_change: 'Stage changed',

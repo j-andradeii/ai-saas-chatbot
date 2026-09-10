@@ -141,6 +141,12 @@ export interface Enquiry {
   stage_changed_at: string
   lost_reason: string | null
   tags: string[]
+  // Lead scoring (migration 014). null until the enquiry has been scored.
+  lead_score: number | null
+  lead_score_rationale: string | null
+  lead_score_signals: string[]
+  lead_scored_at: string | null
+  lead_score_model: string | null
 }
 
 export type EnquiryActivityType =

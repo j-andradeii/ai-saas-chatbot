@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { scoreEnquiry } from '@/lib/lead-score'
 import { chatRatelimit } from '@/lib/ratelimit'
 import type { EnquiryFormField } from '@/types'
 
@@ -116,24 +117,35 @@ export async function POST(request: Request) {
     }
 
     // Insert enquiry
-    const { error: insertError } = await supabaseAdmin.from('enquiries').insert({
-      enquiry_form_id: form.id,
-      chatbot_id: chatbotId,
-      conversation_id: conversationId || null,
-      form_name: form.name,
-      data,
-      visitor_id: visitorId || null,
-      visitor_ip: visitorIp || null,
-      webhook_status: webhookStatus,
-      webhook_response_code: webhookResponseCode,
-    })
+    const { data: enquiry, error: insertError } = await supabaseAdmin
+      .from('enquiries')
+      .insert({
+        enquiry_form_id: form.id,
+        chatbot_id: chatbotId,
+        conversation_id: conversationId || null,
+        form_name: form.name,
+        data,
+        visitor_id: visitorId || null,
+        visitor_ip: visitorIp || null,
+        webhook_status: webhookStatus,
+        webhook_response_code: webhookResponseCode,
+      })
+      .select('id')
+      .single()
 
-    if (insertError) {
+    if (insertError || !enquiry) {
       return NextResponse.json(
         { error: 'Failed to save enquiry' },
         { status: 500, headers: corsHeaders }
       )
     }
+
+    // Scored after the response is sent: it is an LLM round-trip, and the
+    // visitor should not wait on it to see their confirmation message.
+    // scoreEnquiry never throws, so a model outage cannot fail the submission.
+    after(async () => {
+      await scoreEnquiry(enquiry.id)
+    })
 
     return NextResponse.json(
       {

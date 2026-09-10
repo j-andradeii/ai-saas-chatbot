@@ -18,6 +18,7 @@ import {
 import { Download, Eye, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { getStage } from '@/lib/funnel'
+import { LeadScoreBar } from '@/components/enquiries/LeadScoreBar'
 
 export default function EnquiriesPage() {
   const [chatbotFilter, setChatbotFilter] = useState('')
@@ -90,6 +91,7 @@ export default function EnquiriesPage() {
             <TableRow>
               <TableHead>Form</TableHead>
               <TableHead>Stage</TableHead>
+              <TableHead>Interest</TableHead>
               <TableHead>Summary</TableHead>
               <TableHead>Webhook</TableHead>
               <TableHead>Date</TableHead>
@@ -108,6 +110,13 @@ export default function EnquiriesPage() {
                     <Badge className={getStage(enquiry.pipeline_stage).badgeClass}>
                       {getStage(enquiry.pipeline_stage).short}
                     </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <LeadScoreBar
+                      score={enquiry.lead_score}
+                      compact
+                      className={enquiry.lead_score_rationale ? 'cursor-help' : undefined}
+                    />
                   </TableCell>
                   <TableCell className="max-w-xs truncate text-sm">
                     <Link href={`/enquiries/${enquiry.id}`} className="hover:underline">

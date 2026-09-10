@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { StageControl } from './_components/stage-control'
 import { LeadDetails } from './_components/lead-details'
+import { LeadScoreCard } from './_components/lead-score-card'
 import { ActivityTimeline } from './_components/activity-timeline'
 import { TaskList } from './_components/task-list'
 import { ContactCard } from './_components/contact-card'
@@ -115,6 +116,7 @@ export default function EnquiryDetailPage() {
         </div>
 
         <div className="space-y-6">
+          <LeadScoreCard enquiry={enquiry} />
           <LeadDetails enquiry={enquiry} />
           <TaskList enquiryId={enquiry.id} />
 

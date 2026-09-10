@@ -61,7 +61,7 @@ export async function GET(request: Request) {
   const dataKeys = Array.from(allKeys).sort()
 
   // Build CSV
-  const headers = ['id', 'form_name', 'chatbot_id', 'created_at', 'is_read', ...dataKeys]
+  const headers = ['id', 'form_name', 'chatbot_id', 'created_at', 'is_read', 'lead_score', ...dataKeys]
   const rows = enquiries.map((e) => {
     const data = (e.data || {}) as Record<string, unknown>
     return headers.map((h) => {
