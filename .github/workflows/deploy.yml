@@ -1,0 +1,202 @@
+name: Production Deployment
+
+# Fires on every commit that lands on main — which includes every PR merge,
+# regardless of whether it was a merge commit, a squash, or a rebase.
+#
+# This is deliberately NOT `pull_request: types: [closed]`. That event only
+# covers merges that went through a PR, so a hotfix pushed straight to main
+# would silently never deploy. `push` covers both, and needs no
+# `if: merged == true` guard because a PR closed without merging produces no
+# push at all.
+on:
+  push:
+    branches:
+      - main
+  # Lets you re-run migrations + deploy by hand from the Actions tab.
+  workflow_dispatch:
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+# Never let two production deploys (or two migration runs) overlap.
+# cancel-in-progress stays false: cancelling a job midway through `db push`
+# would leave the migration history in an unknown state.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Gates the deploy. Note that `vercel build` runs `next build`, which
+  # type-checks the app graph on its own — so this job's value is the two
+  # things that build does NOT do: run the unit tests, and lint.
+  #
+  # Next 16 removed ESLint from `next build` entirely, and its TypeScript pass
+  # only covers files reachable from the app. `npm test` and `npm run lint`
+  # are the only things checking the rest.
+  verify:
+    name: Lint, typecheck & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      # Stricter than the build: tsconfig.json includes **/*.ts, so this covers
+      # the test files too, which `next build` never looks at.
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm test
+
+  # Applies supabase/migrations/*.sql to the remote project BEFORE the new code
+  # goes live, so the deployed app never queries a schema that doesn't exist yet.
+  #
+  # Requires three secrets on the "production" environment
+  # (Settings > Environments > production > Environment secrets):
+  #
+  #   SUPABASE_ACCESS_TOKEN  - a personal access token from
+  #                            https://supabase.com/dashboard/account/tokens
+  #   SUPABASE_PROJECT_REF   - the 20-character project ref (the subdomain in
+  #                            https://<ref>.supabase.co), NOT the project name
+  #   SUPABASE_DB_PASSWORD   - the database password, from
+  #                            Settings > Database > Database password
+  #
+  # Unlike a direct psql/Drizzle setup, there is no DATABASE_URL to get right
+  # here: the CLI resolves the connection itself and falls back to the Supavisor
+  # pooler when the direct host is IPv6-only, which it always is on GitHub's
+  # IPv4-only runners.
+  migrate:
+    name: Migrate Supabase Postgres
+    needs: verify
+    runs-on: ubuntu-latest
+    # Attach repo Settings > Environments > production for approval gates.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned rather than `latest`: the CLI is the thing applying DDL to
+      # production, and an unattended minor bump is not something you want to
+      # discover mid-migration. Bump this deliberately.
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.117.0
+
+      # Fails in two seconds with a readable message rather than a confusing
+      # auth error 40 seconds in. Never echoes a secret.
+      - name: Validate Supabase secrets
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          missing=0
+          for name in SUPABASE_ACCESS_TOKEN SUPABASE_PROJECT_REF SUPABASE_DB_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not set on the 'production' environment."
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+
+          # The CLI treats exactly-20-lowercase-letters as a project ref. Anything
+          # else gets interpreted as a BRANCH name and fails with a misleading
+          # "branch not found" rather than "that isn't a ref".
+          case "$SUPABASE_PROJECT_REF" in
+            *[!a-z]*|"")
+              echo "::error::SUPABASE_PROJECT_REF must be 20 lowercase letters (the <ref> in https://<ref>.supabase.co). Got a value of length ${#SUPABASE_PROJECT_REF} containing non-lowercase characters."
+              exit 1 ;;
+          esac
+          if [ "${#SUPABASE_PROJECT_REF}" -ne 20 ]; then
+            echo "::error::SUPABASE_PROJECT_REF must be exactly 20 lowercase letters; got length ${#SUPABASE_PROJECT_REF}. Use the project ref, not the project name."
+            exit 1
+          fi
+          echo "Supabase secrets are present and the project ref is well-formed."
+
+      # Also the credential check: a wrong access token or a database password
+      # rotated in the dashboard without updating the secret fails here, with the
+      # CLI's own error, instead of halfway through the push.
+      - name: Link to Supabase project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+
+      # Prints local-vs-remote migration history before touching anything, so a
+      # failed run leaves behind a log that says which versions were out of sync.
+      - name: Show migration status
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase migration list --linked
+
+      - name: Preview pending migrations
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase db push --linked --dry-run
+
+      # Idempotent: the CLI reads supabase_migrations.schema_migrations and applies
+      # only the versions that aren't recorded yet, so re-running a deploy is safe.
+      #
+      # --include-seed is deliberately absent, and must stay absent. supabase/seed.sql
+      # creates a hardcoded admin (admin@chatbot.local / admin123456) for local dev;
+      # applying it to production would install a known-password admin account on a
+      # live database. Same reason `supabase db reset` must never appear in this
+      # workflow — it drops the database before re-seeding.
+      - name: Apply migrations
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase db push --linked
+
+  # No app env vars here on purpose: `vercel pull` downloads the project's own
+  # production environment variables, and the running app reads them from Vercel
+  # at request time. Set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  # SUPABASE_SERVICE_ROLE_KEY, OPENAI_API_KEY, UPSTASH_REDIS_REST_URL,
+  # UPSTASH_REDIS_REST_TOKEN, NEXT_PUBLIC_APP_URL and CRON_SECRET in the Vercel
+  # dashboard (Production scope), not here.
+  #
+  # `needs: migrate` is what keeps the ordering safe: a failed migration blocks
+  # the deploy, so the old code keeps serving rather than new code hitting an old
+  # schema.
+  deploy:
+    name: Deploy to Vercel
+    needs: migrate
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Pull Vercel environment information
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build project artifacts
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy to Vercel
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
